@@ -41,6 +41,4 @@ To run the SMR1 application, execute the following command on your Raspberry Pi:
 python3 sleeve_picker.py
 ```
 
-This will start the robot's sleeve retrieval and mounting process.
-
-Please feel free to add any additional details or information specific to your project as needed.
+This will start the robot's sleeve retrieval and mounting application.
