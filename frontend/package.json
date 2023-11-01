@@ -4,12 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:css": "postcss static/src/tailwind.min.css -o static/css/main.css"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "tailwindcss": "^3.3.3",
     "yaml": "^2.3.3"
+  },
+  "devDependencies": {
+    "postcss-cli": "^10.1.0",
+    "postcss-preset-env": "^9.2.0"
   }
 }

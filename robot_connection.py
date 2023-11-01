@@ -1,98 +1,52 @@
+import errno
 import queue
 import re
 import socket
-import time
+from communication_queues import Queues
 from slot_detection import SlotDetection
 
+QUEUES = Queues.get_instance()
 PORT = 1025
-
-CLIENT = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 ROBOT_IP = "10.24.8.2"
 
-# SLOT_DETECTOR = SlotDetection()
-# SER = SLOT_DETECTOR.ser
+SLOT_DETECTOR = SlotDetection()
+SER = SLOT_DETECTOR.ser
 
 class RobotConnection:
+    robot_running = False
+
     def __init__(self):
+        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sleeve_count = 0
-        # self.server = socket.create_server(("", PORT))
+        self.size_asked_count = 0
 
-    # def start_server(self):
-    #     with socket.create_server(("", PORT)):
-    #         while True:
-    #             pass
-
-    def start_server(self, queues):
+    def initialize_connection(self):
         while True:
-            client_socket, client_address = self.server.accept()
-            print(f"Accepted connection from {client_address}")
-            try:
-                while True:
-                    from_client = client_socket.recv(4096)
-                    string = from_client.decode()
+            if not self.robot_running:
+                continue
 
-                    print(string)
+            self.send_coords()
+            self.__init__()
 
-                    if string == "end":
-                        self.send("ending")
-                        break
+        SER.close()
 
-                    if string == "coords":
-                        coord_string = self._fetch_coords(queues)
-
-                        if not re.match(
-                            r"(none|-?\d+\.\d+;-?\d+\.\d+;(left|right))", coord_string
-                        ):
-                            raise Exception(
-                                "Invalid coordinate string: " + coord_string
-                            )
-
-                        print(coord_string)
-                        self.send(coord_string)
-
-                    elif string == "size":
-                        _, size = SLOT_DETECTOR.get_measurements()
-                        self.send(str(size))
-
-                    elif string == "slot":
-                        detected_slot, _ = SLOT_DETECTOR.get_measurements()
-                        self.send(str(detected_slot))
-
-                    else:
-                        self.send("error")
-            except:
-                pass
-            finally:
-                client_socket.close()
-
-    def connect(self):
-        CLIENT.connect((ROBOT_IP, 1025))
-
-    def send(self, message):
-        CLIENT.send(message.encode())
-
-    def receive(self):
-        from_server = CLIENT.recv(4096)
-        string = from_server.decode()
-        return string
-
-    def close(self):
-        CLIENT.close()
-
-    def send_coords(self, queues):
+    def send_coords(self) -> None:
         while True:
             try:
-                from_server = CLIENT.recv(4096)
-                string = from_server.decode()
+                robot_request = self._receive()
 
-                print(string)
+                if robot_request == "":
+                    continue
 
-                if string == "end":
-                    self.send("ending")
+                QUEUES.logging_queue.put(f"robot: {robot_request}")
+
+                if not self.robot_running:
+                    QUEUES.logging_queue.put(f"ending process")
+                    self._send("none")
                     break
 
-                if string == "coords":
-                    coord_string: str = self._fetch_coords(queues)
+                if robot_request == "coords":
+                    coord_string: str = self._fetch_coords()
 
                     if not re.match(
                         r"(none|-?\d+\.\d+;-?\d+\.\d+;(left|right))", coord_string
@@ -101,34 +55,79 @@ class RobotConnection:
                             "Invalid coordinate string: " + coord_string
                         )
 
-                    print(coord_string)
-                    self.send(coord_string)
+                    self._send(coord_string)
                     self.sleeve_count += 1
 
-                # elif string == "size":
-                #     _, size = SLOT_DETECTOR.get_measurements()
-                #     self.send(str(size))
+                    if coord_string == "none":
+                        QUEUES.logging_queue.put(f"ending process")
+                        break
 
-                # elif string == "slot":
-                #     detected_slot, _ = SLOT_DETECTOR.get_measurements()
-                #     self.send(str(detected_slot))
+                    x, y, direction = coord_string.split(';')
+                    QUEUES.logging_queue.put(f"sleeve coords: [{round(float(x), 2)}, {round(float(y), 2)}], sleeve going {direction}")
+
+
+                elif robot_request == "size":
+                    self.size_asked_count += 1
+
+                    if self.size_asked_count >= 3:
+                        size = SLOT_DETECTOR.get_final_size()
+                        self.size_asked_count = 0
+                        self._send(str(size))
+                    else:
+                        size = SLOT_DETECTOR.append_size()
+                        self._send(str(0))
 
                 else:
-                    self.send("error")
-            except:
-                self.connect()
+                    QUEUES.logging_queue.put(f"error: request {robot_request} from robot does not exist")
+                    self._send("error")
 
-        self.close()
-        SER.close()
+            except (OSError, IOError, socket.timeout) as e:
+                if e.errno in [107, 106] or e.errno == errno.EPIPE:
+                    # QUEUES.logging_queue.put(f"warning: {e.strerror}")
+                    if not self.robot_running:
+                        break
 
-    def _fetch_coords(self, queues):
-        request_queue, info_queue = queues
+                    self._connect()
+
+                if socket.timeout:
+                    continue
+
+                else:
+                    if e is not None and e not in ["", "\n"]:
+                        QUEUES.logging_queue.put(e.with_traceback())
+
+                print(e)
+
+        self._close()
+
+    def _fetch_coords(self) -> str:
         request_message = f"request_sleeve:{self.sleeve_count}"
-        request_queue.put(request_message)
+        QUEUES.robot_request_queue.put(request_message)
 
         while True:
-            if info_queue.empty():
+            if QUEUES.robot_data_queue.empty():
                 continue
 
-            message = info_queue.get()
+            message = QUEUES.robot_data_queue.get()
             return message
+
+    def _connect(self) -> None:
+        try:
+            self.client.settimeout(5)
+            self.client.connect((ROBOT_IP, 1025))
+        except OSError:
+            QUEUES.logging_queue.put("warning: trying to connect to robot...")
+            self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def _send(self, message: str) -> None:
+        self.client.send(message.encode())
+
+    def _receive(self) -> None:
+        from_server = self.client.recv(4096)
+        string = from_server.decode()
+        return string
+
+    def _close(self) -> None:
+        self.client.close()
+
+

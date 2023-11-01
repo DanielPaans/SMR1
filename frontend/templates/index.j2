@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{url_for('static',filename='css/main.css')}}" />
+    <link href="https://unpkg.com/tailwindcss@^2.0/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
+    <title>Sleeve Picker</title>
+</head>
+
+<body class="container bg-gray-200 h-90">
+    <header class="bg-blue-400 text-center pt-2 pb-4 text-white">
+        <h1 class="text-3xl">Sleeve Picker</h1>
+    </header>
+
+    <article class="container mx-auto flex justify-center">
+        <form class="w-2/5 p-4 self-center" action="/" method="post">
+            {% if not start_btn %}
+            <input type="submit"
+                class="bg-green-500 hover:bg-green-800 cursor-pointer text-white text-2xl font-bold mb-2 py-8 px-16 rounded-2xl mx-auto block"
+                value="Start" name="start_btn" />
+            {% elif start_btn %}
+            <input type="submit"
+                class="bg-red-500 hover:bg-red-800 cursor-pointer text-white text-2xl font-bold mb-2 py-8 px-16 rounded-2xl mx-auto block"
+                value="Stop" name="stop_btn" />
+            {% endif %}
+
+            <h1 class="text-xl px-1">Logs</h1>
+            <div id="log-container" class="bg-black text-white border-y-2 rounded-md p-2"
+                style="width: 100%; height: 300px; overflow: auto;">
+            </div>
+        </form>
+
+        <aside class="w-2/3 pt-4">
+            <img src="{{ url_for('video_feed') }}" alt="Video Stream"
+                class="h-full mx-auto border-blue-400 border-4 rounded-md">
+        </aside>
+
+</body>
+
+<script>
+    $(document).ready(function () {
+        var output = document.getElementById('log-container');
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', "{{ url_for('logs') }}", true);
+        xhr.send();
+        setInterval(function () {
+            var responseText = xhr.responseText;
+            var sentences = responseText.split(/\n/g);
+
+            var newResponseText = sentences.map(function (sentence) {
+                var words = sentence.trim().split(' ');
+
+                if (sentence.includes("ending process")) {
+                    setTimeout(function () {
+                        window.location.reload();
+                    }, 100);
+                }
+
+                if (words.length > 0 && words[1]) {
+                    var firstWord = words[1].replace(/:$/, '');
+                    var className = 'text-' + firstWord;
+                    return `<span class="${className}">${sentence}</span><br>`;
+
+                } else {
+                    return `<span>${sentence}</span><br>`;
+                }
+
+
+            }).join('');
+
+            output.innerHTML = newResponseText;
+            output.scrollTop = output.scrollHeight;
+        }, 100);
+    });
+</script>
+
+</html>
