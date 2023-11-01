@@ -1,5 +1,3 @@
-Sure, here's an improved version of your README file:
-
 # SMR1 - Sleeve Mounting Robot
 
 **SMR1** is a project developed for Flexilogic, aimed at employing a robot to retrieve Tetrapak sleeves from a cart and store them in the Fully Automatic Mounting Machine (FAMM 3.0) for mounting printing plates on the sleeve.
